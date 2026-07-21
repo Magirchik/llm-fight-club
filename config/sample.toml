@@ -1,0 +1,54 @@
+experiment_id = "sample_003"
+max_rounds = 3
+opening_message = "Defend your position: free will is an illusion. Argue against it."
+# Language for fighter responses and commentator. Options: "en" (English), "ru" (Русский).
+language = "en"
+
+[[fighters]]
+name = "alice"
+provider = "ollama"
+model = "qwen3:latest"
+system_prompt = "You are a logical fighter. Defend your position with rigorous reasoning. Try to break your opponent's logic while keeping your own consistent. Keep responses under 150 words."
+temperature = 0.8
+max_tokens = 256
+# seed = 0 (default) = random each run. Set non-zero (e.g. 42) for reproducible fight, or 1..N for distribution.
+seed = 0
+base_url = "http://localhost:11434"
+
+[[fighters]]
+name = "bob"
+provider = "ollama"
+model = "qwen3:latest"
+system_prompt = "You are a logical fighter. Counter the opponent's arguments. Expose contradictions in their reasoning while preserving your own logical chain. Keep responses under 150 words."
+temperature = 0.7
+max_tokens = 256
+seed = 0
+base_url = "http://localhost:11434"
+
+[judge_llm]
+provider = "ollama"
+model = "qwen3:latest"
+temperature = 0.0
+base_url = "http://localhost:11434"
+
+[judges.weights]
+consistency = 35.0
+contradiction = 30.0
+reasoning_drift = 20.0
+resistance = 10.0
+memory = 5.0
+
+[referee]
+lss_critical_threshold = 0.3
+lss_draw_threshold = 0.05
+min_rounds = 2
+publish_continue = false
+
+[storage]
+output_dir = "experiments"
+
+[commentator]
+enabled = false
+model = "qwen3:latest"
+temperature = 1.0
+max_tokens = 256

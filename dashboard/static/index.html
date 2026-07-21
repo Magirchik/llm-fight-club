@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LLM Fight Club — Dashboard</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1>LLM Fight Club</h1>
+  <nav>
+    <button data-tab="configs" class="tab-btn active">Configs</button>
+    <button data-tab="live" class="tab-btn">Live</button>
+    <button data-tab="results" class="tab-btn">Results</button>
+    <button data-tab="settings" class="tab-btn">Settings</button>
+  </nav>
+</header>
+
+<section id="configs" class="tab active">
+  <div class="row">
+    <div class="col list-col">
+      <h2>Configs</h2>
+      <ul id="config-list" class="list"></ul>
+      <button id="new-config-btn" class="btn">+ New config</button>
+    </div>
+    <div class="col">
+      <h2>Editor: <span id="config-name">(none)</span></h2>
+      <textarea id="config-editor" rows="24" spellcheck="false"></textarea>
+      <div class="actions">
+        <button id="save-config-btn" class="btn">Save</button>
+        <button id="run-config-btn" class="btn primary">Run with Commentator</button>
+        <label class="toggle">
+          <input type="checkbox" id="commentator-toggle" checked>
+          Commentator
+        </label>
+        <label class="toggle">
+          Language
+          <select id="language-select"></select>
+        </label>
+      </div>
+      <p id="config-status" class="status"></p>
+    </div>
+  </div>
+</section>
+
+<section id="live" class="tab">
+  <div class="row live-row">
+    <div class="col live-events">
+      <h2>Live Monitor</h2>
+      <p id="live-status" class="status">No active run.</p>
+      <h3>Events</h3>
+      <div id="event-log" class="log"></div>
+    </div>
+    <div class="col live-right">
+      <h2>Commentator</h2>
+      <div id="comment-log" class="log comment-log"></div>
+      <h3>Fighter Responses</h3>
+      <div id="fighter-log" class="log fighter-log"></div>
+    </div>
+  </div>
+</section>
+
+<section id="results" class="tab">
+  <div class="row">
+    <div class="col list-col">
+      <h2>Past Experiments</h2>
+      <ul id="experiment-list" class="list"></ul>
+    </div>
+    <div class="col">
+      <div id="experiment-detail"></div>
+    </div>
+  </div>
+</section>
+
+<section id="settings" class="tab">
+  <div class="settings-box">
+    <h2>API Keys</h2>
+    <p class="status">Keys are stored in <code>secrets.json</code> (gitignored). Env vars (OPENAI_API_KEY, ANTHROPIC_API_KEY) also work and are checked first by the CLI.</p>
+    <div class="key-row">
+      <label>OpenAI</label>
+      <input type="password" id="key-openai" placeholder="sk-..." autocomplete="off">
+      <span id="key-status-openai" class="key-status"></span>
+      <button class="btn" data-clear="openai">Clear</button>
+    </div>
+    <div class="key-row">
+      <label>Anthropic</label>
+      <input type="password" id="key-anthropic" placeholder="sk-ant-..." autocomplete="off">
+      <span id="key-status-anthropic" class="key-status"></span>
+      <button class="btn" data-clear="anthropic">Clear</button>
+    </div>
+    <div class="actions">
+      <button id="save-keys-btn" class="btn primary">Save Keys</button>
+      <p id="keys-saved-status" class="status"></p>
+    </div>
+  </div>
+</section>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
