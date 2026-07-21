@@ -3,6 +3,10 @@ const $$ = (sel) => document.querySelectorAll(sel);
 
 let currentConfigName = null;
 let eventSource = null;
+let lssHistory = {};
+let fighterColors = {};
+let chartMaxRounds = 5;
+const COLOR_PALETTE = ["#5ae", "#c5e", "#7ec", "#ec7"];
 
 // --- Tab navigation ---
 $$(".tab-btn").forEach((btn) => {
@@ -73,6 +77,11 @@ $("#run-config-btn").addEventListener("click", async () => {
   const commentator = $("#commentator-toggle").checked;
   const language = $("#language-select").value;
   $("#config-status").textContent = "Starting...";
+  $$(".tab-btn").forEach((b) => b.classList.remove("active"));
+  $$(".tab").forEach((t) => t.classList.remove("active"));
+  $('.tab-btn[data-tab="live"]').classList.add("active");
+  $("#live").classList.add("active");
+  resetLiveView();
   const res = await fetch("/api/run", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -85,22 +94,49 @@ $("#run-config-btn").addEventListener("click", async () => {
   const data = await res.json();
   if (res.ok) {
     $("#config-status").textContent = "Started run: " + data.run_id;
-    $$(".tab-btn").forEach((b) => b.classList.remove("active"));
-    $$(".tab").forEach((t) => t.classList.remove("active"));
-    $('.tab-btn[data-tab="live"]').classList.add("active");
-    $("#live").classList.add("active");
     startLiveStream(data.run_id);
   } else {
     $("#config-status").textContent = "Error: " + data.error;
+    $("#live-status").textContent = "Run failed to start.";
   }
 });
 
 // --- Live monitor ---
-function startLiveStream(runId) {
-  if (eventSource) eventSource.close();
+function resetLiveView() {
+  if (eventSource) {
+    eventSource.close();
+    eventSource = null;
+  }
+  const toml = $("#config-editor").value || "";
+  const m = toml.match(/max_rounds\s*=\s*(\d+)/);
+  chartMaxRounds = m ? Math.max(1, parseInt(m[1], 10)) : 5;
+  clearLiveView();
+}
+
+function clearLiveView() {
+  lssHistory = {};
+  fighterColors = {};
   $("#event-log").innerHTML = "";
   $("#comment-log").innerHTML = "";
   $("#fighter-log").innerHTML = "";
+  $("#chart-legend").innerHTML = "";
+  $("#chart-leader").textContent = "No round scores yet.";
+  $("#lss-chart").innerHTML = "";
+  drawChart();
+}
+
+function attachClearButton() {
+  const btn = $("#clear-live-btn");
+  if (btn && !btn.dataset.bound) {
+    btn.dataset.bound = "1";
+    btn.addEventListener("click", () => {
+      clearLiveView();
+    });
+  }
+}
+
+function startLiveStream(runId) {
+  resetLiveView();
   $("#live-status").textContent = "Run " + runId + " — streaming...";
   eventSource = new EventSource("/api/runs/" + runId + "/stream");
   eventSource.addEventListener("event", (e) => {
@@ -109,6 +145,11 @@ function startLiveStream(runId) {
       appendFighterResponse(ev);
     } else {
       appendEvent(ev);
+    }
+    if (ev.type === "scorekeeper.round_scored") {
+      updateChart(ev);
+    } else if (ev.type === "referee.decision") {
+      showFinalWinner(ev);
     }
   });
   eventSource.addEventListener("comment", (e) => {
@@ -170,6 +211,132 @@ function appendComment(text) {
   div.textContent = text;
   log.appendChild(div);
   log.scrollTop = log.scrollHeight;
+}
+
+// --- LSS chart ---
+function updateChart(ev) {
+  const scores = (ev.data && ev.data.scores) || {};
+  const round = ev.round_number;
+  const names = Object.keys(scores);
+  if (names.length === 0) return;
+  if (Object.keys(fighterColors).length === 0) {
+    names.forEach((n, i) => { fighterColors[n] = COLOR_PALETTE[i % COLOR_PALETTE.length]; });
+    buildLegend();
+  }
+  for (const name of names) {
+    if (!lssHistory[name]) lssHistory[name] = [];
+    lssHistory[name][round - 1] = scores[name].lss;
+  }
+  drawChart();
+  updateLeader(round);
+}
+
+function buildLegend() {
+  const el = $("#chart-legend");
+  el.innerHTML = "";
+  for (const [name, color] of Object.entries(fighterColors)) {
+    const span = document.createElement("span");
+    span.className = "legend-item";
+    const dot = document.createElement("span");
+    dot.className = "legend-dot";
+    dot.style.background = color;
+    span.appendChild(dot);
+    span.appendChild(document.createTextNode(name));
+    el.appendChild(span);
+  }
+}
+
+function lastDefined(arr) {
+  for (let i = arr.length - 1; i >= 0; i--) {
+    if (arr[i] !== undefined) return arr[i];
+  }
+  return undefined;
+}
+
+function currentLeader() {
+  const names = Object.keys(lssHistory);
+  if (names.length !== 2) return null;
+  const [a, b] = names;
+  const va = lastDefined(lssHistory[a]);
+  const vb = lastDefined(lssHistory[b]);
+  if (va === undefined || vb === undefined) return null;
+  if (va > vb) return { name: a, va, vb, diff: va - vb };
+  if (vb > va) return { name: b, va: vb, vb: va, diff: vb - va };
+  return { name: null, va, vb, diff: 0 };
+}
+
+function updateLeader(round) {
+  const lead = currentLeader();
+  const el = $("#chart-leader");
+  if (!lead) {
+    el.textContent = "Round " + round + ": waiting for both scores...";
+    return;
+  }
+  if (lead.name === null) {
+    el.innerHTML = "Round " + round + ': tied at <span class="lead-name">' + lead.va.toFixed(2) + "</span>";
+    return;
+  }
+  const color = fighterColors[lead.name] || "#7ec";
+  el.innerHTML =
+    "Round " + round + ': <span class="lead-name" style="color:' + color + '">' +
+    escapeHtml(lead.name) + "</span> leads — " +
+    lead.va.toFixed(2) + " vs " + lead.vb.toFixed(2) + " (+" + lead.diff.toFixed(2) + ")";
+}
+
+function showFinalWinner(ev) {
+  const d = ev.data || {};
+  const el = $("#chart-leader");
+  if (d.winner) {
+    const color = fighterColors[d.winner] || "#7ec";
+    el.innerHTML =
+      'Winner: <span class="lead-name" style="color:' + color + '">' +
+      escapeHtml(d.winner) + "</span> (" + escapeHtml(d.action || "") + ")";
+  } else {
+    el.textContent = "Result: " + (d.action || "unknown");
+  }
+}
+
+function drawChart() {
+  const svg = $("#lss-chart");
+  const W = 600, H = 240;
+  const pad = { l: 38, r: 14, t: 12, b: 26 };
+  const plotW = W - pad.l - pad.r;
+  const plotH = H - pad.t - pad.b;
+  const xMax = chartMaxRounds;
+  const xScale = (r) => pad.l + (r / xMax) * plotW;
+  const yScale = (v) => pad.t + (1 - v) * plotH;
+  let s = "";
+  for (const v of [0, 0.25, 0.5, 0.75, 1.0]) {
+    const y = yScale(v);
+    s += '<line x1="' + pad.l + '" y1="' + y + '" x2="' + (W - pad.r) + '" y2="' + y + '" stroke="#161a23" stroke-width="1"/>';
+    s += '<text x="' + (pad.l - 5) + '" y="' + (y + 3) + '" text-anchor="end" fill="#567" font-size="10" font-family="monospace">' + v.toFixed(2) + "</text>";
+  }
+  for (let r = 0; r <= xMax; r++) {
+    const x = xScale(r);
+    s += '<text x="' + x + '" y="' + (H - pad.b + 16) + '" text-anchor="middle" fill="#567" font-size="10" font-family="monospace">' + r + "</text>";
+  }
+  s += '<line x1="' + pad.l + '" y1="' + pad.t + '" x2="' + pad.l + '" y2="' + (H - pad.b) + '" stroke="#2a2f3a" stroke-width="1"/>';
+  s += '<line x1="' + pad.l + '" y1="' + (H - pad.b) + '" x2="' + (W - pad.r) + '" y2="' + (H - pad.b) + '" stroke="#2a2f3a" stroke-width="1"/>';
+  const lead = currentLeader();
+  const leaderName = lead ? lead.name : null;
+  for (const [name, scores] of Object.entries(lssHistory)) {
+    const color = fighterColors[name] || "#888";
+    const isLeader = name === leaderName;
+    const sw = isLeader ? 3 : 2;
+    const pts = [];
+    scores.forEach((v, i) => {
+      if (v !== undefined) pts.push(xScale(i + 1) + "," + yScale(v));
+    });
+    if (pts.length > 1) {
+      s += '<polyline points="' + pts.join(" ") + '" fill="none" stroke="' + color + '" stroke-width="' + sw + '" stroke-linejoin="round" stroke-linecap="round"/>';
+    }
+    for (const p of pts) {
+      const [px, py] = p.split(",");
+      s += '<circle cx="' + px + '" cy="' + py + '" r="' + (isLeader ? 4 : 3) + '" fill="' + color + '"/>';
+    }
+  }
+  s += '<text x="' + (pad.l + plotW / 2) + '" y="' + (H - 2) + '" text-anchor="middle" fill="#789" font-size="10">Round</text>';
+  svg.innerHTML = s;
 }
 
 // --- Results ---
@@ -323,3 +490,5 @@ $$("[data-clear]").forEach((btn) => {
 loadLanguages();
 loadConfigs();
 loadKeyStatus();
+attachClearButton();
+drawChart();

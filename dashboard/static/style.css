@@ -173,6 +173,30 @@ textarea {
   word-wrap: break-word;
 }
 
+.chart-box {
+  background: #0b1014;
+  border: 1px solid #1f3a4a;
+  border-radius: 6px;
+  padding: 14px 16px 10px;
+  margin-bottom: 16px;
+}
+.chart-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.chart-header h2 { margin: 0; }
+.chart-leader { font-size: 13px; color: #9ab; }
+.clear-btn { margin-left: auto; padding: 3px 12px; font-size: 12px; }
+.chart-leader .lead-name { font-weight: bold; }
+#lss-chart { width: 100%; height: 230px; display: block; }
+.chart-legend { display: flex; gap: 18px; margin-top: 4px; font-size: 12px; color: #9ab; flex-wrap: wrap; }
+.legend-item { display: flex; align-items: center; gap: 6px; }
+.legend-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+
 .log-entry { padding: 3px 0; border-bottom: 1px solid #161a23; }
 .log-entry:last-child { border-bottom: none; }
 .log-entry .ts { color: #567; }

@@ -25,9 +25,11 @@ class Referee:
         self._stream = event_stream
         self._packer = event_packer
         self._last_lss: dict[str, float] = {}
+        self._last_lss_round: int | None = None
         self._decided = False
         self._fight_finished = False
         self._finish_reason: str | None = None
+        self._finish_round: int | None = None
 
     def __call__(self, event: Event) -> None:
         if event.type == "scorekeeper.round_scored":
@@ -41,6 +43,7 @@ class Referee:
         scores = event.data.get("scores", {})
         lss = {fighter: data["lss"] for fighter, data in scores.items()}
         self._last_lss = lss
+        self._last_lss_round = event.round_number
         round_number = event.round_number
         if round_number >= self._config.min_rounds and len(lss) == 2:
             a, b = list(lss.keys())
@@ -74,17 +77,23 @@ class Referee:
                 )
                 return
         if self._fight_finished and self._finish_reason == "completed":
-            self._try_final_decision(round_number)
-        else:
-            self._publish_continue(round_number, lss)
+            if self._finish_round is not None and round_number >= self._finish_round:
+                self._try_final_decision(round_number)
+                return
+        self._publish_continue(round_number, lss)
 
     def _on_arena_finished(self, event: Event) -> None:
         if self._decided:
             return
         self._fight_finished = True
         self._finish_reason = event.data.get("reason")
+        self._finish_round = event.round_number
         if self._finish_reason == "completed":
-            self._try_final_decision(event.round_number)
+            if (
+                self._last_lss_round is not None
+                and self._last_lss_round >= self._finish_round
+            ):
+                self._try_final_decision(self._finish_round)
 
     def _try_final_decision(self, round_number: int) -> None:
         if self._decided:

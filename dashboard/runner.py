@@ -121,6 +121,7 @@ class RunManager:
             raise
         run_id = uuid.uuid4().hex[:12]
         events_path = self.experiments_dir / f"{config.experiment_id}.jsonl"
+        events_path.unlink(missing_ok=True)
         run = Run(run_id, config_path, config.experiment_id, events_path)
         self._runs[run_id] = run
         cmd = [sys.executable, "-u", "-m", "fightclub", "run", str(config_path)]

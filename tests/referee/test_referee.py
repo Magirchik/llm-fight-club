@@ -139,6 +139,27 @@ class RefereeTest(unittest.TestCase):
         referee(self._round_scored(packer, 2, {"a": 0.05, "b": 0.05}))
         self.assertEqual(len(events), n)
 
+    def test_waits_for_final_round_score_when_scores_delayed(self) -> None:
+        referee, packer, _, events = self._make(lss_draw_threshold=0.05)
+        referee(self._round_scored(packer, 1, {"a": 1.0, "b": 0.95}))
+        referee(self._arena_finished(packer, 2, "completed"))
+        self.assertNotIn("referee.decision", [e.type for e in events])
+        referee(self._round_scored(packer, 2, {"a": 0.5, "b": 0.94}))
+        decision = next(e for e in events if e.type == "referee.decision")
+        self.assertEqual(decision.data["action"], "win")
+        self.assertEqual(decision.data["winner"], "b")
+        self.assertAlmostEqual(decision.data["lss"]["a"], 0.5)
+        self.assertAlmostEqual(decision.data["lss"]["b"], 0.94)
+
+    def test_ignores_earlier_round_score_after_finished(self) -> None:
+        referee, packer, _, events = self._make(lss_draw_threshold=0.05)
+        referee(self._arena_finished(packer, 2, "completed"))
+        referee(self._round_scored(packer, 1, {"a": 1.0, "b": 0.95}))
+        self.assertNotIn("referee.decision", [e.type for e in events])
+        referee(self._round_scored(packer, 2, {"a": 0.4, "b": 0.6}))
+        decision = next(e for e in events if e.type == "referee.decision")
+        self.assertEqual(decision.data["winner"], "b")
+
 
 class RefereeArenaIntegrationTest(unittest.IsolatedAsyncioTestCase):
     async def test_referee_stops_arena_via_event_stream(self) -> None:

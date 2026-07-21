@@ -1,7 +1,10 @@
+import io
+import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from dashboard.runner import Run, _COMMENT_RE, enable_commentator, set_language
+from dashboard.runner import Run, RunManager, _COMMENT_RE, enable_commentator, set_language
 
 
 class EnableCommentatorTest(unittest.TestCase):
@@ -80,3 +83,36 @@ class SetLanguageTest(unittest.TestCase):
         self.assertIn('experiment_id = "e1"', out)
         self.assertIn('name = "a"', out)
         self.assertIn('language = "ru"', out)
+
+
+class RunManagerStartTest(unittest.TestCase):
+    _TOML = (
+        'experiment_id = "rmt"\nmax_rounds = 1\nopening_message = "hi"\n\n'
+        '[[fighters]]\nname = "a"\nprovider = "ollama"\nmodel = "m"\nsystem_prompt = "s"\n\n'
+        '[[fighters]]\nname = "b"\nprovider = "ollama"\nmodel = "m"\nsystem_prompt = "s"\n\n'
+        '[judge_llm]\nprovider = "ollama"\nmodel = "m"\n'
+    )
+
+    def test_deletes_existing_jsonl_before_spawn(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        exp_dir = Path(tmp.name)
+        events_path = exp_dir / "rmt.jsonl"
+        events_path.write_text('{"old": "stale event"}\n', encoding="utf-8")
+        manager = RunManager(experiments_dir=str(exp_dir))
+        with patch("dashboard.runner.subprocess.Popen") as popen_mock:
+            popen_mock.return_value.stdout = io.StringIO("")
+            popen_mock.return_value.stderr = io.StringIO("")
+            popen_mock.return_value.poll.return_value = 0
+            manager.start(self._TOML, enable_commentator_flag=False)
+        self.assertFalse(events_path.exists())
+
+    def test_start_no_error_when_jsonl_absent(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        manager = RunManager(experiments_dir=str(tmp.name))
+        with patch("dashboard.runner.subprocess.Popen") as popen_mock:
+            popen_mock.return_value.stdout = io.StringIO("")
+            popen_mock.return_value.stderr = io.StringIO("")
+            popen_mock.return_value.poll.return_value = 0
+            manager.start(self._TOML, enable_commentator_flag=False)
