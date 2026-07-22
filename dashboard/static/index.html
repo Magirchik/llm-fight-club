@@ -38,6 +38,21 @@
           Language
           <select id="language-select"></select>
         </label>
+        <label class="toggle">
+          Runs
+          <input type="number" id="runs-input" min="1" max="50" value="1" style="width:54px">
+        </label>
+        <label class="toggle">
+          Mode
+          <select id="mode-select">
+            <option value="sequential">Sequential</option>
+            <option value="parallel">Parallel</option>
+          </select>
+        </label>
+        <label class="toggle" id="max-parallel-wrap" style="display:none">
+          Max parallel
+          <input type="number" id="max-parallel-input" min="1" max="20" value="3" style="width:54px">
+        </label>
       </div>
       <p id="config-status" class="status"></p>
     </div>
@@ -45,6 +60,10 @@
 </section>
 
 <section id="live" class="tab">
+  <div id="runs-panel" class="runs-panel" style="display:none">
+    <h3>Runs in this batch</h3>
+    <div id="runs-list" class="runs-list"></div>
+  </div>
   <div class="chart-box">
     <div class="chart-header">
       <h2>Logic Stability Score</h2>

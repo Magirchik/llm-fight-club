@@ -141,23 +141,41 @@ class DashboardServer:
                     toml_text = body.get("content", "")
                     enable_comm = body.get("commentator", True)
                     language = body.get("language") or None
+                    runs = int(body.get("runs", 1) or 1)
+                    parallel = bool(body.get("parallel", False))
+                    max_parallel = int(body.get("max_parallel", 3) or 3)
                     if not toml_text:
                         self._send_json(400, {"error": "content required"})
                         return
                     try:
-                        run_id = run_manager.start(
-                            toml_text,
-                            enable_commentator_flag=enable_comm,
-                            language=language,
-                        )
+                        if runs > 1:
+                            batch_id, run_ids = run_manager.start_many(
+                                toml_text,
+                                runs,
+                                parallel=parallel,
+                                max_parallel=max_parallel,
+                                enable_commentator_flag=enable_comm,
+                                language=language,
+                            )
+                            self._send_json(200, {"batch_id": batch_id, "run_ids": run_ids})
+                        else:
+                            run_id = run_manager.start(
+                                toml_text,
+                                enable_commentator_flag=enable_comm,
+                                language=language,
+                            )
+                            self._send_json(200, {"batch_id": None, "run_ids": [run_id]})
                     except Exception as exc:
                         self._send_json(400, {"error": str(exc)})
                         return
-                    self._send_json(200, {"run_id": run_id})
                     return
                 if path == "/api/keys":
                     body = json.loads(raw) if raw else {}
                     self._save_keys(body)
+                    return
+                if path == "/api/runs/kill":
+                    run_manager.kill_all()
+                    self._send_json(200, {"killed": True})
                     return
                 self._send_json(404, {"error": "not found"})
 

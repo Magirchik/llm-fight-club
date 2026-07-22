@@ -8,13 +8,32 @@ from pathlib import Path
 from dashboard.server import DashboardServer
 
 
-def _sample_toml(exp_id: str = "dash_test") -> str:
+def _sample_toml(exp_id: str = "dash_test", output_dir: str = "experiments") -> str:
     return (
         f'experiment_id = "{exp_id}"\nmax_rounds = 1\nopening_message = "hi"\n\n'
         '[[fighters]]\nname = "a"\nprovider = "ollama"\nmodel = "m"\nsystem_prompt = "s"\n\n'
         '[[fighters]]\nname = "b"\nprovider = "ollama"\nmodel = "m"\nsystem_prompt = "s"\n\n'
-        '[judge_llm]\nprovider = "ollama"\nmodel = "m"\n'
+        '[judge_llm]\nprovider = "ollama"\nmodel = "m"\n\n'
+        f'[storage]\noutput_dir = "{output_dir}"\n'
     )
+
+
+class _FakeProc:
+    def __init__(self) -> None:
+        self.stdout = None
+        self.stderr = None
+
+    def poll(self) -> int:
+        return 0
+
+    def wait(self) -> int:
+        return 0
+
+
+def _fake_start_run(run) -> None:
+    run.process = _FakeProc()
+    run.finished = True
+    run.reason = "completed"
 
 
 class ServerApiTest(unittest.TestCase):
@@ -31,6 +50,7 @@ class ServerApiTest(unittest.TestCase):
             host="127.0.0.1",
             port=0,
         )
+        cls.server.run_manager._start_run = _fake_start_run
         from http.server import ThreadingHTTPServer
 
         cls._httpd = ThreadingHTTPServer(("127.0.0.1", 0), cls.server._make_handler())
@@ -43,6 +63,10 @@ class ServerApiTest(unittest.TestCase):
         cls._httpd.shutdown()
         cls._config_tmp.cleanup()
         cls._exp_tmp.cleanup()
+
+    def _toml(self, exp_id: str = "dash_test") -> str:
+        out = str(self.exp_dir).replace("\\", "/")
+        return _sample_toml(exp_id, output_dir=out)
 
     def _conn(self) -> HTTPConnection:
         return HTTPConnection("127.0.0.1", self.port, timeout=5)
@@ -180,8 +204,40 @@ class ServerApiTest(unittest.TestCase):
         self.assertIn("ru", codes)
 
     def test_run_with_language_validates(self) -> None:
-        status, body = self._post("/api/run", {"content": _sample_toml(), "language": "fr"})
+        status, body = self._post("/api/run", {"content": self._toml(), "language": "fr"})
         self.assertEqual(status, 400)
+
+    def test_run_returns_batch_id_and_run_ids(self) -> None:
+        status, body = self._post("/api/run", {"content": self._toml()})
+        self.assertEqual(status, 200)
+        data = json.loads(body)
+        self.assertIn("run_ids", data)
+        self.assertEqual(len(data["run_ids"]), 1)
+        self.assertIn("batch_id", data)
+
+    def test_run_multi_returns_multiple_run_ids(self) -> None:
+        status, body = self._post(
+            "/api/run",
+            {"content": self._toml(), "runs": 3, "parallel": False},
+        )
+        self.assertEqual(status, 200)
+        data = json.loads(body)
+        self.assertEqual(len(data["run_ids"]), 3)
+        self.assertIsNotNone(data["batch_id"])
+
+    def test_runs_list_includes_batch_id_and_winner(self) -> None:
+        status, body = self._get("/api/runs")
+        self.assertEqual(status, 200)
+        data = json.loads(body)
+        for r in data:
+            self.assertIn("batch_id", r)
+            self.assertIn("winner", r)
+
+    def test_kill_endpoint(self) -> None:
+        status, body = self._post("/api/runs/kill", {})
+        self.assertEqual(status, 200)
+        data = json.loads(body)
+        self.assertTrue(data["killed"])
 
     def test_keys_endpoint_returns_status(self) -> None:
         status, body = self._get("/api/keys")

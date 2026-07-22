@@ -6,6 +6,10 @@ let eventSource = null;
 let lssHistory = {};
 let fighterColors = {};
 let chartMaxRounds = 5;
+let currentBatchId = null;
+let currentRunIds = [];
+let selectedRunId = null;
+let runsPollTimer = null;
 const COLOR_PALETTE = ["#5ae", "#c5e", "#7ec", "#ec7"];
 
 // --- Tab navigation ---
@@ -69,6 +73,10 @@ $("#new-config-btn").addEventListener("click", () => {
   $("#config-status").textContent = "Unsaved. Click Save.";
 });
 
+$("#mode-select").addEventListener("change", (e) => {
+  $("#max-parallel-wrap").style.display = e.target.value === "parallel" ? "" : "none";
+});
+
 $("#run-config-btn").addEventListener("click", async () => {
   if (!$("#config-editor").value) {
     $("#config-status").textContent = "No config to run.";
@@ -76,6 +84,9 @@ $("#run-config-btn").addEventListener("click", async () => {
   }
   const commentator = $("#commentator-toggle").checked;
   const language = $("#language-select").value;
+  const runs = Math.max(1, parseInt($("#runs-input").value, 10) || 1);
+  const parallel = $("#mode-select").value === "parallel";
+  const maxParallel = Math.max(1, parseInt($("#max-parallel-input").value, 10) || 3);
   $("#config-status").textContent = "Starting...";
   $$(".tab-btn").forEach((b) => b.classList.remove("active"));
   $$(".tab").forEach((t) => t.classList.remove("active"));
@@ -89,14 +100,29 @@ $("#run-config-btn").addEventListener("click", async () => {
       content: $("#config-editor").value,
       commentator: commentator,
       language: language,
+      runs: runs,
+      parallel: parallel,
+      max_parallel: maxParallel,
     }),
   });
   const data = await res.json();
   if (res.ok) {
-    $("#config-status").textContent = "Started run: " + data.run_id;
-    startLiveStream(data.run_id);
+    try {
+      currentBatchId = data.batch_id;
+      currentRunIds = data.run_ids || (data.run_id ? [data.run_id] : []);
+      if (!currentRunIds.length) throw new Error("server returned no run_ids");
+      selectedRunId = currentRunIds[0];
+      $("#config-status").textContent =
+        "Started " + currentRunIds.length + " run(s)" + (currentBatchId ? " (batch " + currentBatchId + ")" : "");
+      renderRunsList();
+      if (selectedRunId) startLiveStream(selectedRunId);
+      startRunsPolling();
+    } catch (err) {
+      $("#live-status").textContent = "UI error: " + err.message;
+      $("#config-status").textContent = "UI error: " + err.message;
+    }
   } else {
-    $("#config-status").textContent = "Error: " + data.error;
+    $("#config-status").textContent = "Error: " + (data.error || res.status);
     $("#live-status").textContent = "Run failed to start.";
   }
 });
@@ -130,15 +156,137 @@ function attachClearButton() {
   if (btn && !btn.dataset.bound) {
     btn.dataset.bound = "1";
     btn.addEventListener("click", () => {
-      clearLiveView();
+      clearAll();
     });
   }
 }
 
-function startLiveStream(runId) {
+async function clearAll() {
+  try {
+    await fetch("/api/runs/kill", { method: "POST" });
+  } catch (e) {}
+  if (eventSource) {
+    eventSource.close();
+    eventSource = null;
+  }
+  if (runsPollTimer) {
+    clearInterval(runsPollTimer);
+    runsPollTimer = null;
+  }
+  currentBatchId = null;
+  currentRunIds = [];
+  selectedRunId = null;
+  $("#runs-panel").style.display = "none";
+  $("#runs-list").innerHTML = "";
+  clearLiveView();
+  $("#live-status").textContent = "Cleared. All background runs killed.";
+}
+
+// --- Runs list (multi-run) ---
+function renderRunsList() {
+  const panel = $("#runs-panel");
+  const list = $("#runs-list");
+  if (!currentRunIds || currentRunIds.length <= 1) {
+    panel.style.display = "none";
+    list.innerHTML = "";
+    return;
+  }
+  panel.style.display = "";
+  list.innerHTML = "";
+  currentRunIds.forEach((rid, idx) => {
+    const card = document.createElement("div");
+    card.className = "run-card" + (rid === selectedRunId ? " active" : "");
+    card.dataset.runId = rid;
+    card.innerHTML =
+      '<div class="rc-title">Run ' + (idx + 1) + '</div>' +
+      '<div class="rc-status" data-status="' + rid + '">starting...</div>' +
+      '<div class="rc-winner" data-winner="' + rid + '"></div>';
+    card.addEventListener("click", () => selectRun(rid));
+    list.appendChild(card);
+  });
+  updateRunsStatus();
+}
+
+async function selectRun(runId) {
+  if (runId === selectedRunId && eventSource) return;
+  selectedRunId = runId;
+  renderRunsList();
+  const runInfo = await fetchRunInfo(runId);
   resetLiveView();
-  $("#live-status").textContent = "Run " + runId + " — streaming...";
+  if (runInfo && runInfo.finished) {
+    replayFinishedRun(runId);
+  } else {
+    startLiveStream(runId);
+  }
+}
+
+async function fetchRunInfo(runId) {
+  try {
+    const res = await fetch("/api/runs");
+    const all = await res.json();
+    return all.find((r) => r.run_id === runId) || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function startRunsPolling() {
+  if (runsPollTimer) clearInterval(runsPollTimer);
+  runsPollTimer = setInterval(updateRunsStatus, 1000);
+  updateRunsStatus();
+}
+
+async function updateRunsStatus() {
+  if (!currentRunIds.length) {
+    if (runsPollTimer) { clearInterval(runsPollTimer); runsPollTimer = null; }
+    return;
+  }
+  try {
+    const res = await fetch("/api/runs");
+    const all = await res.json();
+    const byId = {};
+    for (const r of all) byId[r.run_id] = r;
+    let allFinished = true;
+    currentRunIds.forEach((rid, idx) => {
+      const info = byId[rid];
+      const statusEl = document.querySelector('[data-status="' + rid + '"]');
+      const winnerEl = document.querySelector('[data-winner="' + rid + '"]');
+      const card = document.querySelector('.run-card[data-run-id="' + rid + '"]');
+      if (!info) {
+        allFinished = false;
+        return;
+      }
+      if (!info.finished) allFinished = false;
+      if (statusEl) {
+        statusEl.textContent = info.finished
+          ? "finished: " + (info.reason || "unknown")
+          : "streaming (" + info.events + " events)";
+      }
+      if (card) card.classList.toggle("streaming", !info.finished);
+      if (winnerEl && info.winner) {
+        winnerEl.textContent = "Winner: " + info.winner;
+        winnerEl.classList.remove("draw");
+      } else if (winnerEl && info.finished && info.reason === "completed") {
+        winnerEl.textContent = "Draw";
+        winnerEl.classList.add("draw");
+      } else if (winnerEl && info.finished) {
+        winnerEl.textContent = "no decision";
+      }
+    });
+    if (allFinished && runsPollTimer) {
+      clearInterval(runsPollTimer);
+      runsPollTimer = null;
+    }
+  } catch (e) {}
+}
+
+function replayFinishedRun(runId) {
+  $("#live-status").textContent = "Replaying finished run " + runId;
   eventSource = new EventSource("/api/runs/" + runId + "/stream");
+  attachSseHandlers(runId);
+}
+
+function attachSseHandlers(runId) {
   eventSource.addEventListener("event", (e) => {
     const ev = JSON.parse(e.data);
     if (ev.type === "fighter.response") {
@@ -159,12 +307,18 @@ function startLiveStream(runId) {
   eventSource.addEventListener("finished", (e) => {
     const d = JSON.parse(e.data);
     $("#live-status").textContent = "Finished: " + (d.reason || "unknown");
-    eventSource.close();
-    eventSource = null;
+    if (eventSource) { eventSource.close(); eventSource = null; }
   });
   eventSource.onerror = () => {
     $("#live-status").textContent = "Connection lost.";
   };
+}
+
+function startLiveStream(runId) {
+  resetLiveView();
+  $("#live-status").textContent = "Run " + runId + " — streaming...";
+  eventSource = new EventSource("/api/runs/" + runId + "/stream");
+  attachSseHandlers(runId);
 }
 
 function appendEvent(ev) {

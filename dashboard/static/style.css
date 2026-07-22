@@ -197,6 +197,33 @@ textarea {
 .legend-item { display: flex; align-items: center; gap: 6px; }
 .legend-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
 
+.runs-panel {
+  background: #0b1014;
+  border: 1px solid #1f3a4a;
+  border-radius: 6px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+}
+.runs-panel h3 { margin: 0 0 8px; font-size: 13px; color: #789; }
+.runs-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.run-card {
+  background: #131826;
+  border: 1px solid #2a2f3a;
+  border-radius: 5px;
+  padding: 7px 12px;
+  cursor: pointer;
+  font-size: 12px;
+  min-width: 150px;
+  transition: border-color 0.15s;
+}
+.run-card:hover { border-color: #3a5a7a; }
+.run-card.active { border-color: #5ae; background: #15263a; }
+.run-card .rc-title { font-weight: bold; color: #cde; margin-bottom: 2px; }
+.run-card .rc-status { color: #789; }
+.run-card .rc-winner { color: #7ec; font-weight: bold; }
+.run-card .rc-winner.draw { color: #ec7; }
+.run-card.streaming { border-left: 3px solid #5ae; }
+
 .log-entry { padding: 3px 0; border-bottom: 1px solid #161a23; }
 .log-entry:last-child { border-bottom: none; }
 .log-entry .ts { color: #567; }
